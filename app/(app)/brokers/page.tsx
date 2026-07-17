@@ -1,6 +1,8 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import type { Broker } from "@/lib/types";
 import AddBrokerForm from "@/components/brokers/add-broker-form";
+import RiskBadge from "@/components/brokers/risk-badge";
 
 export default async function BrokersPage() {
   const supabase = createClient();
@@ -27,13 +29,21 @@ export default async function BrokersPage() {
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
                   Credit score
                 </th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Risk
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {(brokers as Broker[] | null)?.map((broker) => (
                 <tr key={broker.id} className="hover:bg-slate-50">
                   <td className="px-4 py-3 text-sm font-medium text-slate-900">
-                    {broker.name}
+                    <Link
+                      href={`/brokers/${broker.id}`}
+                      className="hover:underline"
+                    >
+                      {broker.name}
+                    </Link>
                   </td>
                   <td className="px-4 py-3 text-sm text-slate-600">
                     {broker.mc_number || "-"}
@@ -41,12 +51,15 @@ export default async function BrokersPage() {
                   <td className="px-4 py-3 text-sm text-slate-600">
                     {broker.credit_score ?? "-"}
                   </td>
+                  <td className="px-4 py-3 text-sm">
+                    <RiskBadge risk={broker.risk_flag} />
+                  </td>
                 </tr>
               ))}
               {(!brokers || brokers.length === 0) && (
                 <tr>
                   <td
-                    colSpan={3}
+                    colSpan={4}
                     className="px-4 py-8 text-center text-sm text-slate-500"
                   >
                     No brokers yet.

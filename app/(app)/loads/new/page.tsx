@@ -3,7 +3,12 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import type { Broker, Carrier, Driver, Equipment } from "@/lib/types";
+import type { Broker, Carrier, Driver, Equipment, LaneBenchmark } from "@/lib/types";
+import { findBenchmark, scoreLoad } from "@/lib/scoring";
+import ScorePill from "@/components/loads/score-pill";
+import BrokerRiskBanner, {
+  brokerRiskRequiresConfirm,
+} from "@/components/loads/broker-risk-banner";
 
 const US_STATES = [
   "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
@@ -20,6 +25,7 @@ export default function NewLoadPage() {
   const [brokers, setBrokers] = useState<Broker[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [equipment, setEquipment] = useState<Equipment[]>([]);
+  const [benchmarks, setBenchmarks] = useState<LaneBenchmark[]>([]);
 
   const [carrierId, setCarrierId] = useState("");
   const [brokerId, setBrokerId] = useState("");
@@ -35,6 +41,10 @@ export default function NewLoadPage() {
   const [loadedMiles, setLoadedMiles] = useState("");
   const [deadheadMiles, setDeadheadMiles] = useState("");
   const [rateconFile, setRateconFile] = useState<File | null>(null);
+  const [parsingRatecon, setParsingRatecon] = useState(false);
+  const [parseErrorMessage, setParseErrorMessage] = useState("");
+
+  const [brokerRiskConfirmed, setBrokerRiskConfirmed] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -42,16 +52,19 @@ export default function NewLoadPage() {
   useEffect(() => {
     const supabase = createClient();
     async function loadBaseData() {
-      const [{ data: carrierData }, { data: brokerData }] = await Promise.all([
-        supabase
-          .from("carriers")
-          .select("*")
-          .eq("status", "active")
-          .order("company_name", { ascending: true }),
-        supabase.from("brokers").select("*").order("name", { ascending: true }),
-      ]);
+      const [{ data: carrierData }, { data: brokerData }, { data: benchmarkData }] =
+        await Promise.all([
+          supabase
+            .from("carriers")
+            .select("*")
+            .eq("status", "active")
+            .order("company_name", { ascending: true }),
+          supabase.from("brokers").select("*").order("name", { ascending: true }),
+          supabase.from("lane_benchmarks").select("*"),
+        ]);
       setCarriers((carrierData as Carrier[]) || []);
       setBrokers((brokerData as Broker[]) || []);
+      setBenchmarks((benchmarkData as LaneBenchmark[]) || []);
     }
     loadBaseData();
   }, []);
@@ -77,10 +90,70 @@ export default function NewLoadPage() {
     loadCarrierData();
   }, [carrierId]);
 
+  async function handleRateconUpload(file: File) {
+    setRateconFile(file);
+    setParsingRatecon(true);
+    setParseErrorMessage("");
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch("/api/parse-ratecon", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || "Failed to parse rate confirmation");
+      }
+
+      const parsed = await response.json();
+
+      if (parsed.broker_name) {
+        const match = brokers.find(
+          (broker) =>
+            broker.name.trim().toLowerCase() ===
+            String(parsed.broker_name).trim().toLowerCase()
+        );
+        if (match) setBrokerId(match.id);
+      }
+      if (parsed.origin_city) setOriginCity(parsed.origin_city);
+      if (parsed.origin_state) setOriginState(parsed.origin_state);
+      if (parsed.dest_city) setDestCity(parsed.dest_city);
+      if (parsed.dest_state) setDestState(parsed.dest_state);
+      if (parsed.pickup_date) setPickupDate(parsed.pickup_date);
+      if (parsed.delivery_date) setDeliveryDate(parsed.delivery_date);
+      if (parsed.rate) setRate(String(parsed.rate));
+      if (parsed.loaded_miles) setLoadedMiles(String(parsed.loaded_miles));
+    } catch (error) {
+      setParseErrorMessage(
+        error instanceof Error ? error.message : "Failed to parse rate confirmation"
+      );
+    } finally {
+      setParsingRatecon(false);
+    }
+  }
+
   const previewRatePerMile =
     rate && loadedMiles && Number(loadedMiles) > 0
-      ? (Number(rate) / Number(loadedMiles)).toFixed(2)
-      : "0.00";
+      ? Number(rate) / Number(loadedMiles)
+      : 0;
+
+  const selectedEquipment = equipment.find((item) => item.id === equipmentId);
+  const previewBenchmark =
+    carrierId && selectedEquipment && originState && destState && rate && loadedMiles
+      ? findBenchmark(benchmarks, originState, destState, selectedEquipment.type)
+      : null;
+  const previewScore = previewBenchmark
+    ? scoreLoad(previewRatePerMile, previewBenchmark)
+    : null;
+
+  const selectedBroker = brokers.find((broker) => broker.id === brokerId);
+  const brokerConfirmRequired = selectedBroker
+    ? brokerRiskRequiresConfirm(selectedBroker.risk_flag)
+    : false;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -171,7 +244,10 @@ export default function NewLoadPage() {
             </label>
             <select
               value={brokerId}
-              onChange={(e) => setBrokerId(e.target.value)}
+              onChange={(e) => {
+                setBrokerId(e.target.value);
+                setBrokerRiskConfirmed(false);
+              }}
               className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
             >
               <option value="">No broker</option>
@@ -182,6 +258,16 @@ export default function NewLoadPage() {
               ))}
             </select>
           </div>
+
+          {selectedBroker && (
+            <div className="sm:col-span-2">
+              <BrokerRiskBanner
+                risk={selectedBroker.risk_flag}
+                confirmed={brokerRiskConfirmed}
+                onConfirmChange={setBrokerRiskConfirmed}
+              />
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-slate-700">
@@ -350,21 +436,52 @@ export default function NewLoadPage() {
             </label>
             <input
               readOnly
-              value={`$${previewRatePerMile}`}
+              value={`$${previewRatePerMile.toFixed(2)}`}
               className="mt-1 block w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500"
             />
           </div>
         </div>
 
-        <div>
+        {carrierId && originState && destState && rate && loadedMiles && (
+          <div className="flex items-center gap-2 text-sm text-slate-600">
+            <span>Lane score preview:</span>
+            <ScorePill score={previewScore} />
+          </div>
+        )}
+
+        <div className="rounded-md border border-slate-200 p-4">
           <label className="block text-sm font-medium text-slate-700">
-            Rate confirmation (optional)
+            Upload rate confirmation (optional)
           </label>
+          <p className="mt-1 text-xs text-slate-500">
+            Uploading a rate confirmation PDF fills in the fields above
+            automatically. Review every field before saving, nothing is
+            saved automatically from a parse.
+          </p>
           <input
             type="file"
-            onChange={(e) => setRateconFile(e.target.files?.[0] || null)}
-            className="mt-1 text-sm text-slate-600"
+            accept="application/pdf"
+            disabled={parsingRatecon}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleRateconUpload(file);
+            }}
+            className="mt-2 text-sm text-slate-600"
           />
+          {parsingRatecon && (
+            <p className="mt-2 text-sm text-slate-500">
+              Reading rate confirmation
+            </p>
+          )}
+          {rateconFile && !parsingRatecon && !parseErrorMessage && (
+            <p className="mt-2 text-sm text-emerald-700">
+              Parsed {rateconFile.name}. Review the fields above before
+              saving.
+            </p>
+          )}
+          {parseErrorMessage && (
+            <p className="mt-2 text-sm text-red-600">{parseErrorMessage}</p>
+          )}
         </div>
 
         {errorMessage && (
@@ -374,7 +491,11 @@ export default function NewLoadPage() {
         <div className="flex gap-3">
           <button
             type="submit"
-            disabled={saving || !carrierId}
+            disabled={
+              saving ||
+              !carrierId ||
+              (brokerConfirmRequired && !brokerRiskConfirmed)
+            }
             className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
           >
             {saving ? "Saving" : "Save load"}

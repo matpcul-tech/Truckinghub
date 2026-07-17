@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { saferLookupUrl } from "@/lib/safer";
 
 export default function AddBrokerForm() {
   const router = useRouter();
@@ -63,11 +64,23 @@ export default function AddBrokerForm() {
           <label className="block text-sm font-medium text-slate-700">
             MC number
           </label>
-          <input
-            value={mcNumber}
-            onChange={(e) => setMcNumber(e.target.value)}
-            className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
-          />
+          <div className="mt-1 flex gap-2">
+            <input
+              value={mcNumber}
+              onChange={(e) => setMcNumber(e.target.value)}
+              className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
+            />
+            {mcNumber && (
+              <a
+                href={saferLookupUrl(mcNumber)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="whitespace-nowrap rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                Look up on SAFER
+              </a>
+            )}
+          </div>
         </div>
 
         <div>

@@ -2,8 +2,10 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import StatusPill from "@/components/loads/status-pill";
 import StatusControl from "@/components/loads/status-control";
+import ScorePill from "@/components/loads/score-pill";
 import FiltersBar from "@/components/loads/filters-bar";
-import type { Carrier, LoadStatus } from "@/lib/types";
+import { findBenchmark, scoreLoad } from "@/lib/scoring";
+import type { Carrier, LaneBenchmark, LoadStatus } from "@/lib/types";
 
 interface LoadRow {
   id: string;
@@ -15,6 +17,7 @@ interface LoadRow {
   status: LoadStatus;
   carriers: { company_name: string } | null;
   brokers: { name: string } | null;
+  equipment: { type: string | null } | null;
 }
 
 export default async function LoadsPage({
@@ -26,7 +29,7 @@ export default async function LoadsPage({
 
   let query = supabase
     .from("loads")
-    .select("*, carriers(company_name), brokers(name)")
+    .select("*, carriers(company_name), brokers(name), equipment(type)")
     .order("created_at", { ascending: false });
 
   if (searchParams.status) {
@@ -36,13 +39,17 @@ export default async function LoadsPage({
     query = query.eq("carrier_id", searchParams.carrier);
   }
 
-  const [{ data: loads }, { data: carriers }] = await Promise.all([
-    query,
-    supabase
-      .from("carriers")
-      .select("*")
-      .order("company_name", { ascending: true }),
-  ]);
+  const [{ data: loads }, { data: carriers }, { data: benchmarks }] =
+    await Promise.all([
+      query,
+      supabase
+        .from("carriers")
+        .select("*")
+        .order("company_name", { ascending: true }),
+      supabase.from("lane_benchmarks").select("*"),
+    ]);
+
+  const benchmarkList = (benchmarks as LaneBenchmark[]) || [];
 
   return (
     <div>
@@ -83,43 +90,64 @@ export default async function LoadsPage({
                 Rate per mile
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                Score
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
                 Status
               </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {(loads as unknown as LoadRow[] | null)?.map((load) => (
-              <tr key={load.id} className="hover:bg-slate-50">
-                <td className="px-4 py-3 text-sm font-medium text-slate-900">
-                  {load.carriers?.company_name || "-"}
-                </td>
-                <td className="px-4 py-3 text-sm text-slate-600">
-                  {load.brokers?.name || "-"}
-                </td>
-                <td className="px-4 py-3 text-sm text-slate-600">
-                  {load.origin_state || "?"} to {load.dest_state || "?"}
-                </td>
-                <td className="px-4 py-3 text-sm text-slate-600">
-                  {load.pickup_date || "-"}
-                </td>
-                <td className="px-4 py-3 text-sm text-slate-600">
-                  ${Number(load.rate).toLocaleString()}
-                </td>
-                <td className="px-4 py-3 text-sm text-slate-600">
-                  ${Number(load.rate_per_mile).toFixed(2)}
-                </td>
-                <td className="px-4 py-3 text-sm">
-                  <div className="flex items-center gap-2">
-                    <StatusPill status={load.status} />
-                    <StatusControl loadId={load.id} status={load.status} />
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {(loads as unknown as LoadRow[] | null)?.map((load) => {
+              const benchmark = findBenchmark(
+                benchmarkList,
+                load.origin_state,
+                load.dest_state,
+                load.equipment?.type || null
+              );
+              const score = scoreLoad(Number(load.rate_per_mile), benchmark);
+
+              return (
+                <tr key={load.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3 text-sm font-medium text-slate-900">
+                    <Link
+                      href={`/loads/${load.id}`}
+                      className="hover:underline"
+                    >
+                      {load.carriers?.company_name || "-"}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-slate-600">
+                    {load.brokers?.name || "-"}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-slate-600">
+                    {load.origin_state || "?"} to {load.dest_state || "?"}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-slate-600">
+                    {load.pickup_date || "-"}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-slate-600">
+                    ${Number(load.rate).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-slate-600">
+                    ${Number(load.rate_per_mile).toFixed(2)}
+                  </td>
+                  <td className="px-4 py-3 text-sm">
+                    <ScorePill score={score} />
+                  </td>
+                  <td className="px-4 py-3 text-sm">
+                    <div className="flex items-center gap-2">
+                      <StatusPill status={load.status} />
+                      <StatusControl loadId={load.id} status={load.status} />
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
             {(!loads || loads.length === 0) && (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={8}
                   className="px-4 py-8 text-center text-sm text-slate-500"
                 >
                   No loads yet.

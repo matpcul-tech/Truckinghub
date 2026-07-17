@@ -28,6 +28,8 @@ export interface Equipment {
   carrier_id: string;
   unit_number: string | null;
   type: string | null;
+  fixed_cost_weekly: number;
+  cost_per_mile: number;
   created_at: string;
 }
 
@@ -40,12 +42,19 @@ export interface Driver {
   created_at: string;
 }
 
+export type RiskFlag = "good" | "watch" | "avoid" | "unknown";
+
+export const RISK_FLAGS: RiskFlag[] = ["good", "watch", "avoid", "unknown"];
+
 export interface Broker {
   id: string;
   name: string;
   mc_number: string | null;
   credit_score: number | null;
   notes: string | null;
+  days_to_pay: number | null;
+  risk_flag: RiskFlag;
+  last_load_at: string | null;
   created_at: string;
 }
 
@@ -86,3 +95,20 @@ export const LOAD_STATUSES: LoadStatus[] = [
   "invoiced",
   "paid",
 ];
+
+export const EQUIPMENT_TYPES = [
+  "dry van",
+  "reefer",
+  "flatbed",
+  "step deck",
+  "power only",
+];
+
+export interface LaneBenchmark {
+  id: string;
+  origin_state: string;
+  dest_state: string;
+  equipment_type: string;
+  benchmark_rpm: number;
+  updated_at: string;
+}

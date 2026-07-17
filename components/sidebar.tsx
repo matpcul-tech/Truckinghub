@@ -9,6 +9,8 @@ const NAV_ITEMS = [
   { label: "Carriers", href: "/carriers" },
   { label: "Loads", href: "/loads" },
   { label: "Brokers", href: "/brokers" },
+  { label: "Trucks P&L", href: "/trucks-pnl" },
+  { label: "Settings", href: "/settings/benchmarks" },
 ];
 
 export default function Sidebar() {
