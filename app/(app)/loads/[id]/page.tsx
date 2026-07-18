@@ -4,8 +4,22 @@ import { createClient } from "@/lib/supabase/server";
 import StatusPill from "@/components/loads/status-pill";
 import StatusControl from "@/components/loads/status-control";
 import ScorePill from "@/components/loads/score-pill";
+import CopyLinkButton from "@/components/copy-link-button";
+import InvoicePacketPanel from "@/components/loads/invoice-packet-panel";
 import { findBenchmark, scoreLoad } from "@/lib/scoring";
 import type { LaneBenchmark, Load } from "@/lib/types";
+
+function parseInvoiceNumberFromPath(path: string): string | null {
+  const match = path.match(/invoice-(.+)-\d+\.pdf$/);
+  return match ? match[1] : null;
+}
+
+interface DocumentRow {
+  id: string;
+  kind: string | null;
+  url: string;
+  created_at: string;
+}
 
 interface LoadDetailRow extends Load {
   carriers: { company_name: string } | null;
@@ -53,6 +67,48 @@ export default async function LoadDetailPage({
       .from("carrier-docs")
       .createSignedUrl(typedLoad.ratecon_url, 3600);
     rateconSignedUrl = data?.signedUrl ?? null;
+  }
+
+  const { data: podDocuments } = await supabase
+    .from("documents")
+    .select("*")
+    .eq("load_id", params.id)
+    .eq("kind", "pod")
+    .order("created_at", { ascending: false });
+
+  const podSignedUrls = await Promise.all(
+    ((podDocuments as DocumentRow[]) || []).map(async (doc) => {
+      const { data } = await supabase.storage
+        .from("carrier-docs")
+        .createSignedUrl(doc.url, 3600);
+      return { id: doc.id, signedUrl: data?.signedUrl ?? null, createdAt: doc.created_at };
+    })
+  );
+
+  const { data: invoiceDocuments } = await supabase
+    .from("documents")
+    .select("*")
+    .eq("load_id", params.id)
+    .eq("kind", "invoice")
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  const latestInvoiceDoc = ((invoiceDocuments as DocumentRow[]) || [])[0];
+  let existingInvoice: {
+    invoiceNumber: string | null;
+    signedUrl: string | null;
+    createdAt: string;
+  } | null = null;
+
+  if (latestInvoiceDoc) {
+    const { data } = await supabase.storage
+      .from("carrier-docs")
+      .createSignedUrl(latestInvoiceDoc.url, 3600);
+    existingInvoice = {
+      invoiceNumber: parseInvoiceNumberFromPath(latestInvoiceDoc.url),
+      signedUrl: data?.signedUrl ?? null,
+      createdAt: latestInvoiceDoc.created_at,
+    };
   }
 
   return (
@@ -166,14 +222,71 @@ export default async function LoadDetailPage({
           </dl>
         </div>
 
-        <div className="rounded-lg border border-slate-200 bg-white p-6">
-          <h2 className="text-lg font-semibold text-slate-900">Status</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Advance this load through the dispatch pipeline.
-          </p>
-          <div className="mt-4">
-            <StatusControl loadId={typedLoad.id} status={typedLoad.status} />
+        <div className="space-y-6">
+          <div className="rounded-lg border border-slate-200 bg-white p-6">
+            <h2 className="text-lg font-semibold text-slate-900">Status</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Advance this load through the dispatch pipeline.
+            </p>
+            <div className="mt-4">
+              <StatusControl loadId={typedLoad.id} status={typedLoad.status} />
+            </div>
           </div>
+
+          <div className="rounded-lg border border-slate-200 bg-white p-6">
+            <h2 className="text-lg font-semibold text-slate-900">Driver</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Text this link to the driver. It opens only this load, no
+              account needed. Rate and fee are never shown to the driver.
+            </p>
+            <div className="mt-3">
+              <CopyLinkButton
+                path={`/d/${typedLoad.driver_token}`}
+                label="Copy driver link"
+              />
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-slate-200 bg-white p-6">
+            <h2 className="text-lg font-semibold text-slate-900">
+              Proof of delivery
+            </h2>
+            {podSignedUrls.length === 0 ? (
+              <p className="mt-1 text-sm text-slate-500">
+                No proof of delivery uploaded yet.
+              </p>
+            ) : (
+              <ul className="mt-3 space-y-2">
+                {podSignedUrls.map((doc) => (
+                  <li key={doc.id} className="text-sm">
+                    {doc.signedUrl ? (
+                      <a
+                        href={doc.signedUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-slate-900 underline"
+                      >
+                        View document
+                      </a>
+                    ) : (
+                      <span className="text-slate-500">
+                        Document unavailable
+                      </span>
+                    )}
+                    <span className="ml-2 text-slate-400">
+                      {new Date(doc.createdAt).toLocaleString()}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <InvoicePacketPanel
+            loadId={typedLoad.id}
+            status={typedLoad.status}
+            existingInvoice={existingInvoice}
+          />
         </div>
       </div>
     </div>

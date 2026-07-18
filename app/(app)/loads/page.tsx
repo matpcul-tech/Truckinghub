@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentProfile, isOwner } from "@/lib/profile";
 import StatusPill from "@/components/loads/status-pill";
 import StatusControl from "@/components/loads/status-control";
 import ScorePill from "@/components/loads/score-pill";
 import FiltersBar from "@/components/loads/filters-bar";
+import ScopeToggle from "@/components/scope-toggle";
 import { findBenchmark, scoreLoad } from "@/lib/scoring";
 import type { Carrier, LaneBenchmark, LoadStatus } from "@/lib/types";
 
@@ -23,9 +25,12 @@ interface LoadRow {
 export default async function LoadsPage({
   searchParams,
 }: {
-  searchParams: { status?: string; carrier?: string };
+  searchParams: { status?: string; carrier?: string; scope?: string };
 }) {
   const supabase = createClient();
+  const profile = await getCurrentProfile();
+  const owner = isOwner(profile);
+  const scope = owner && searchParams.scope === "mine" ? "mine" : "all";
 
   let query = supabase
     .from("loads")
@@ -38,8 +43,15 @@ export default async function LoadsPage({
   if (searchParams.carrier) {
     query = query.eq("carrier_id", searchParams.carrier);
   }
+  if (scope === "mine" && profile) {
+    const { data: myCarriers } = await supabase
+      .from("carriers")
+      .select("id")
+      .eq("assigned_dispatcher", profile.id);
+    query = query.in("carrier_id", (myCarriers || []).map((c) => c.id));
+  }
 
-  const [{ data: loads }, { data: carriers }, { data: benchmarks }] =
+  const [{ data: loads }, { data: carriers }, { data: benchmarks }, { data: podDocs }] =
     await Promise.all([
       query,
       supabase
@@ -47,20 +59,27 @@ export default async function LoadsPage({
         .select("*")
         .order("company_name", { ascending: true }),
       supabase.from("lane_benchmarks").select("*"),
+      supabase.from("documents").select("load_id").eq("kind", "pod"),
     ]);
 
   const benchmarkList = (benchmarks as LaneBenchmark[]) || [];
+  const podLoadIds = new Set(
+    (podDocs || []).map((doc) => doc.load_id).filter(Boolean)
+  );
 
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold text-slate-900">Loads</h1>
-        <Link
-          href="/loads/new"
-          className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-        >
-          Add load
-        </Link>
+        <div className="flex items-center gap-3">
+          {owner && <ScopeToggle basePath="/loads" />}
+          <Link
+            href="/loads/new"
+            className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+          >
+            Add load
+          </Link>
+        </div>
       </div>
 
       <div className="mt-4">
@@ -136,9 +155,19 @@ export default async function LoadsPage({
                     <ScorePill score={score} />
                   </td>
                   <td className="px-4 py-3 text-sm">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <StatusPill status={load.status} />
                       <StatusControl loadId={load.id} status={load.status} />
+                      {podLoadIds.has(load.id) && (
+                        <span className="inline-flex items-center rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-800">
+                          POD
+                        </span>
+                      )}
+                      {load.status === "delivered" && (
+                        <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                          Ready to invoice
+                        </span>
+                      )}
                     </div>
                   </td>
                 </tr>

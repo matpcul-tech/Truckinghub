@@ -13,9 +13,13 @@ const NAV_ITEMS = [
   { label: "Settings", href: "/settings/benchmarks" },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ isOwner }: { isOwner: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
+
+  const navItems = isOwner
+    ? [...NAV_ITEMS, { label: "Team", href: "/team" }]
+    : NAV_ITEMS;
 
   async function handleSignOut() {
     const supabase = createClient();
@@ -33,7 +37,7 @@ export default function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-1 px-3">
-        {NAV_ITEMS.map((item) => {
+        {navItems.map((item) => {
           const isActive = pathname.startsWith(item.href);
           return (
             <Link

@@ -19,6 +19,10 @@ export default function NewCarrierPage() {
     setErrorMessage("");
 
     const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
     const { data, error } = await supabase
       .from("carriers")
       .insert({
@@ -27,6 +31,7 @@ export default function NewCarrierPage() {
         dot_number: dotNumber || null,
         fee_percent: feePercent ? Number(feePercent) : 6.0,
         status: "pending",
+        assigned_dispatcher: user?.id || null,
       })
       .select()
       .single();

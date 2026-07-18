@@ -1,9 +1,11 @@
 export type CarrierStatus = "pending" | "active" | "paused";
 
+export type Role = "owner" | "dispatcher";
+
 export interface Profile {
   id: string;
   full_name: string | null;
-  role: string;
+  role: Role;
   created_at: string;
 }
 
@@ -20,6 +22,7 @@ export interface Carrier {
   fee_percent: number;
   status: CarrierStatus;
   assigned_dispatcher: string | null;
+  invoice_seq: number;
   created_at: string;
 }
 
@@ -84,6 +87,7 @@ export interface Load {
   rate_per_mile: number;
   status: LoadStatus;
   ratecon_url: string | null;
+  driver_token: string;
   created_at: string;
 }
 
