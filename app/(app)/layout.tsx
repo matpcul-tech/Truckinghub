@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentProfile, isOwner } from "@/lib/profile";
+import { getOrCreateCurrentProfile, isOwner } from "@/lib/profile";
 import Sidebar from "@/components/sidebar";
 
 export default async function AppLayout({
@@ -17,7 +17,7 @@ export default async function AppLayout({
     redirect("/login");
   }
 
-  const profile = await getCurrentProfile();
+  const profile = await getOrCreateCurrentProfile();
 
   return (
     <div className="flex min-h-screen bg-slate-50">
